@@ -72,3 +72,6 @@ app.include_router(ghost_router)
 
 from discussions import router as discussions_router
 app.include_router(discussions_router)
+
+from discussion_events import router as discussion_events_router
+app.include_router(discussion_events_router)
