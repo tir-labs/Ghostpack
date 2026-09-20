@@ -22,12 +22,15 @@ services:
     env_file: .env
     environment:
       LIVE_API_URL: http://live:8090
+      BOT_DB: /data/bot/bot.sqlite3
     depends_on:
       - live
     volumes:
       - ./discord-attachments:/data/attachments
+      - bot-data:/data/bot
     restart: unless-stopped
     profiles: ["discord"]
 volumes:
   media-data:
   live-data:
+  bot-data:
