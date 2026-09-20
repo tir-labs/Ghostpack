@@ -69,3 +69,6 @@ from public import router as public_router
 from ghost_events import router as ghost_router
 app.include_router(public_router)
 app.include_router(ghost_router)
+
+from discussions import router as discussions_router
+app.include_router(discussions_router)
