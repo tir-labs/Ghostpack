@@ -93,3 +93,11 @@ def community(guild_id:str):
         row=db.execute("SELECT name,icon_url,members,online,boosts,updated_at FROM community_snapshot WHERE guild_id=?",(guild_id,)).fetchone()
         if not row:raise HTTPException(404,"No public community snapshot")
         return dict(row)
+
+@router.get("/internal/discussions/articles/{ghost_post_id}")
+def internal_article(ghost_post_id:str,authorization:str|None=Header(None)):
+    require(authorization)
+    init()
+    with store.connect() as db:
+        row=db.execute("SELECT ghost_post_id,forum_id,thread_id,thread_url FROM article_discussions WHERE ghost_post_id=?",(ghost_post_id,)).fetchone()
+        return dict(row) if row else {}
