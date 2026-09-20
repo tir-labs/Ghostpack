@@ -4,6 +4,7 @@ import os
 import discord
 import httpx
 import monitors
+import article_forum
 from discord import app_commands
 
 TOKEN=os.environ["DISCORD_TOKEN"]
@@ -118,9 +119,24 @@ async def on_message(message):
         print("Submission error:",repr(exc))
 @client.event
 async def on_ready():
+    if not getattr(client,"article_scheduler_started",False):
+        client.article_scheduler_started=True
+        asyncio.create_task(article_scheduler())
     if not getattr(client,"monitor_scheduler_started",False):
         client.monitor_scheduler_started=True
         asyncio.create_task(monitors.scheduler(client))
     await tree.sync(guild=discord.Object(id=GUILD))
     print("GhostLive bot online:",client.user)
+async def article_scheduler():
+    await client.wait_until_ready()
+    while not client.is_closed():
+        try:
+            guild=client.get_guild(GUILD)
+            if guild and article_forum.FORUM_ID:
+                await article_forum.sync_published(client,api)
+                snapshot={"guild_id":str(guild.id),"name":guild.name,"icon_url":str(guild.icon.url) if guild.icon else None,
+                    "members":guild.member_count,"online":None,"boosts":guild.premium_subscription_count}
+                await api("PUT","/internal/discussions/community",snapshot)
+        except Exception as exc:print("Article scheduler error",type(exc).__name__,str(exc)[:160])
+        await asyncio.sleep(900)
 client.run(TOKEN)
