@@ -16,6 +16,6 @@ def published_event(event_id:str):
             m=meta.get(u["id"],{})
             counts=json.loads(m.get("emoji_counts","{}"))
             reactions=sorted(counts.items(),key=lambda x:(0 if x[0]=="⬆️" else 1 if x[0]=="⬇️" else 2,-x[1],x[0]))
-            replies=[dict(x) for x in con.execute("SELECT id,parent_message_id,body,created_at FROM timeline_replies WHERE update_id=? ORDER BY created_at,id",(u["id"],))]
-            result.append({**u,"author_kind":m.get("author_kind","reader"),"verified":m.get("author_kind")=="staff","contributor_badge":m.get("author_kind")=="contributor","pinned":bool(m.get("pinned_at")),"reactions":reactions,"replies":replies})
+            # Reply ingestion is not yet moderated or visibility-checked; fail closed.\n            replies=[]
+            result.append({**u,"author_kind":m.get("author_kind","reader"),"verified":m.get("author_kind")=="staff","contributor_badge":m.get("author_kind")=="contributor","pinned":bool(m.get("pinned_at")),"prior_key_point":bool(con.execute("SELECT 1 FROM pin_history WHERE update_id=?",(u["id"],)).fetchone()) and not bool(m.get("pinned_at")),"reactions":reactions,"replies":replies})
         return {"id":event["id"],"title":event["title"],"status":event["status"],"updates":result}
