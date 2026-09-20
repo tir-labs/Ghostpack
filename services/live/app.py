@@ -56,3 +56,10 @@ def archive(id:str,authorization:str|None=Header(None)):
 @app.post("/events/{id}/end")
 def end(id:str,authorization:str|None=Header(None)):
     auth(authorization);return execute(store.end,id)
+
+@app.get("/threads/{thread_id}/event")
+def thread_event(thread_id:str,authorization:str|None=Header(None)):
+    auth(authorization)
+    event=store.by_thread(thread_id)
+    if not event: raise HTTPException(404,"No active event for thread")
+    return event
