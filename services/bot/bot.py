@@ -117,6 +117,45 @@ async def on_message(message):
         await message.add_reaction("📝")
     except (httpx.HTTPError,discord.HTTPException) as exc:
         print("Submission error:",repr(exc))
+async def public_update_message(payload):
+    if payload.guild_id!=GUILD or not payload.message_id:return None
+    channel=client.get_channel(payload.channel_id)
+    if channel is None:
+        try:channel=await client.fetch_channel(payload.channel_id)
+        except discord.HTTPException:return None
+    # Only configured public forums, never staff channels or arbitrary threads.
+    if not isinstance(channel,discord.Thread) or channel.parent_id not in article_forum.PUBLIC_IDS:
+        return None
+    parent=channel.parent or client.get_channel(channel.parent_id)
+    if not isinstance(parent,discord.ForumChannel) or not article_forum.public_forum(parent,parent.guild):
+        return None
+    try:return await api("GET",f"/internal/updates/by-message/{payload.message_id}")
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code==404:return None
+        raise
+
+@client.event
+async def on_raw_reaction_add(payload):
+    await sync_reaction(payload,added=True)
+@client.event
+async def on_raw_reaction_remove(payload):
+    await sync_reaction(payload,added=False)
+async def sync_reaction(payload,added):
+    if payload.user_id==client.user.id:return
+    try:
+        update=await public_update_message(payload)
+        if not update:return
+        channel=client.get_channel(payload.channel_id) or await client.fetch_channel(payload.channel_id)
+        message=await channel.fetch_message(payload.message_id)
+        emoji=str(payload.emoji)
+        count=next((r.count for r in message.reactions if str(r.emoji)==emoji),0)
+        await api("POST",f"/internal/updates/messages/{payload.message_id}/reactions",{"emoji":emoji,"count":count})
+        if added and emoji=="📌":
+            member=payload.member or channel.guild.get_member(payload.user_id)
+            if member and editor(member):await api("POST",f"/internal/updates/{update['id']}/pin")
+    except (discord.HTTPException,httpx.HTTPError,ValueError) as exc:
+        print("Public reaction sync error",type(exc).__name__,str(exc)[:160])
+
 @client.event
 async def on_ready():
     if not getattr(client,"article_scheduler_started",False):
