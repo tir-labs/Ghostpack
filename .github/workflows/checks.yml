@@ -1,0 +1,20 @@
+name: Checks
+on:
+  push:
+  pull_request:
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [media, live, bot, keypoints]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntax check
+        run: python -m compileall -q services/${{ matrix.module }}
+      - name: Unit tests
+        if: matrix.module == 'live' || matrix.module == 'media'
+        run: cd services/${{ matrix.module }} && python -m unittest discover -s tests -v
