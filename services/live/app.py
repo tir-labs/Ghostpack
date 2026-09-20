@@ -63,3 +63,9 @@ def thread_event(thread_id:str,authorization:str|None=Header(None)):
     event=store.by_thread(thread_id)
     if not event: raise HTTPException(404,"No active event for thread")
     return event
+
+# Public reads are intentionally isolated from authenticated editorial endpoints.
+from public import router as public_router
+from ghost_events import router as ghost_router
+app.include_router(public_router)
+app.include_router(ghost_router)
