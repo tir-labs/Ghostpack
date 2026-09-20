@@ -3,6 +3,7 @@ import asyncio
 import os
 import discord
 import httpx
+import monitors
 from discord import app_commands
 
 TOKEN=os.environ["DISCORD_TOKEN"]
@@ -30,6 +31,20 @@ async def api(method,path,payload=None):
         return response.json()
 def editor(member):
     return any(role.id==EDITOR_ROLE for role in getattr(member,"roles",[]))
+@tree.command(name="monitor",description="Create a recurring RSSHub monitor",guild=discord.Object(id=GUILD))
+@app_commands.describe(interval="Check frequency",feed_url="HTTPS RSSHub feed URL",role="Role to ping for new items")
+@app_commands.choices(interval=[app_commands.Choice(name=x,value=x) for x in monitors.INTERVALS])
+async def monitor(interaction:discord.Interaction,interval:app_commands.Choice[str],feed_url:str,role:discord.Role):
+    target=int(os.environ.get("DISCORD_MONITORS_CHANNEL_ID","0"))
+    if not target or interaction.channel_id!=target:
+        return await interaction.response.send_message("Create monitors in #monitors.",ephemeral=True)
+    if not editor(interaction.user):
+        return await interaction.response.send_message("Editor role required to create monitors.",ephemeral=True)
+    try: mid=monitors.add(interaction.guild_id,target,interaction.user.id,feed_url,interval.value,[role.id])
+    except ValueError as exc:
+        return await interaction.response.send_message(str(exc),ephemeral=True)
+    await interaction.response.send_message(f"Monitor #{mid} created: [{interval.value}] {feed_url} {role.mention}",allowed_mentions=discord.AllowedMentions.none())
+
 @tree.command(name="live",description="Start a GhostLive reporting event",guild=discord.Object(id=GUILD))
 @app_commands.describe(title="Working headline for this event")
 async def live(interaction:discord.Interaction,title:str):
@@ -103,6 +118,9 @@ async def on_message(message):
         print("Submission error:",repr(exc))
 @client.event
 async def on_ready():
+    if not getattr(client,"monitor_scheduler_started",False):
+        client.monitor_scheduler_started=True
+        asyncio.create_task(monitors.scheduler(client))
     await tree.sync(guild=discord.Object(id=GUILD))
     print("GhostLive bot online:",client.user)
 client.run(TOKEN)
