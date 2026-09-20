@@ -10,7 +10,8 @@ from discord import app_commands
 TOKEN=os.environ["DISCORD_TOKEN"]
 GUILD=int(os.environ["DISCORD_GUILD_ID"])
 MANAGEMENT=int(os.environ["DISCORD_MANAGEMENT_CHANNEL_ID"])
-REPORTING=int(os.environ["DISCORD_REPORTING_CHANNEL_ID"])
+STAFF_LIVE_FORUM=int(os.environ.get("DISCORD_STAFF_LIVE_FORUM_ID","0"))
+COMMUNITY_LIVE_FORUM=int(os.environ.get("DISCORD_COMMUNITY_LIVE_FORUM_ID","0"))
 QUEUE=int(os.environ["DISCORD_QUEUE_CHANNEL_ID"])
 EDITOR_ROLE=int(os.environ["EDITOR_ROLE_ID"])
 API=os.environ.get("LIVE_API_URL","http://live:8090").rstrip("/")
@@ -52,13 +53,27 @@ async def live(interaction:discord.Interaction,title:str):
     if interaction.channel_id!=MANAGEMENT or not editor(interaction.user):
         return await interaction.response.send_message("Editors must use the management channel.",ephemeral=True)
     await interaction.response.defer(ephemeral=True)
-    channel=client.get_channel(REPORTING)
-    if not isinstance(channel,discord.TextChannel):
-        return await interaction.followup.send("Reporting channel not configured.",ephemeral=True)
-    thread=await channel.create_thread(name=title[:90],type=discord.ChannelType.public_thread)
-    event=await api("POST","/events",{"title":title,"thread_id":str(thread.id)})
-    await thread.send("GhostLive reporting thread. Submissions enter the editor queue; this is not yet a published Ghost article.")
-    await interaction.followup.send(f"Event {event['id']} created: {thread.mention}",ephemeral=True)
+    if not STAFF_LIVE_FORUM or not COMMUNITY_LIVE_FORUM or STAFF_LIVE_FORUM==COMMUNITY_LIVE_FORUM:
+        return await interaction.followup.send("Configure distinct staff and community live forum IDs.",ephemeral=True)
+    channel=client.get_channel(STAFF_LIVE_FORUM)
+    community=client.get_channel(COMMUNITY_LIVE_FORUM)
+    if not isinstance(channel,discord.ForumChannel) or channel.guild.id!=GUILD:
+        return await interaction.followup.send("Staff live forum is missing or belongs to another server.",ephemeral=True)
+    if not isinstance(community,discord.ForumChannel) or community.guild.id!=GUILD:
+        return await interaction.followup.send("Community live forum is missing or belongs to another server.",ephemeral=True)
+    if channel.permissions_for(channel.guild.default_role).view_channel:
+        return await interaction.followup.send("Staff forum is visible to @everyone; fix Discord permissions first.",ephemeral=True)
+    if not channel.permissions_for(interaction.user).view_channel or not channel.permissions_for(interaction.user).send_messages_in_threads:
+        return await interaction.followup.send("You cannot write to the staff live forum.",ephemeral=True)
+    if not article_forum.public_forum(community,community.guild) or community.id not in article_forum.PUBLIC_IDS:
+        return await interaction.followup.send("Community live forum must be explicitly allowlisted and publicly readable.",ephemeral=True)
+    try:
+        created=await channel.create_thread(name=title[:90],content="Private GhostLive editorial workspace. Never copy this thread or attachments to a public channel.")
+        thread=created.thread
+        event=await api("POST","/events",{"title":title,"thread_id":str(thread.id)})
+    except (discord.HTTPException,httpx.HTTPError) as exc:
+        return await interaction.followup.send(f"Could not start private event: {type(exc).__name__}.",ephemeral=True)
+    await interaction.followup.send(f"Private event {event['id']} created: {thread.mention}. Public thread is deferred until editorial publication.",ephemeral=True)
 @tree.command(name="end",description="Close a GhostLive event",guild=discord.Object(id=GUILD))
 @app_commands.describe(thread_id="Discord reporting thread ID")
 async def end(interaction:discord.Interaction,thread_id:str):
@@ -96,6 +111,9 @@ class Review(discord.ui.View):
 @client.event
 async def on_message(message):
     if message.author.bot or not isinstance(message.channel,discord.Thread): return
+    if not STAFF_LIVE_FORUM or message.channel.parent_id!=STAFF_LIVE_FORUM: return
+    parent=message.channel.parent
+    if not isinstance(parent,discord.ForumChannel) or parent.permissions_for(parent.guild.default_role).view_channel: return
     event=await event_for_thread(str(message.channel.id))
     if not event: return
     event_id=event["id"]
