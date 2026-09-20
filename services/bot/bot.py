@@ -17,8 +17,12 @@ intents=discord.Intents.default()
 intents.message_content=True
 client=discord.Client(intents=intents)
 tree=app_commands.CommandTree(client)
-threads={}
-pending={}
+async def event_for_thread(thread_id):
+    try:
+        return await api("GET",f"/threads/{thread_id}/event")
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code==404: return None
+        raise
 async def api(method,path,payload=None):
     async with httpx.AsyncClient(timeout=30) as http:
         response=await http.request(method,API+path,headers=HEADERS,json=payload)
@@ -37,7 +41,6 @@ async def live(interaction:discord.Interaction,title:str):
         return await interaction.followup.send("Reporting channel not configured.",ephemeral=True)
     thread=await channel.create_thread(name=title[:90],type=discord.ChannelType.public_thread)
     event=await api("POST","/events",{"title":title,"thread_id":str(thread.id)})
-    threads[thread.id]=event["id"]
     await thread.send("GhostLive reporting thread. Submissions enter the editor queue; this is not yet a published Ghost article.")
     await interaction.followup.send(f"Event {event['id']} created: {thread.mention}",ephemeral=True)
 @tree.command(name="end",description="Close a GhostLive event",guild=discord.Object(id=GUILD))
@@ -47,13 +50,13 @@ async def end(interaction:discord.Interaction,thread_id:str):
         return await interaction.response.send_message("Editors must use the management channel.",ephemeral=True)
     try: thread_number=int(thread_id)
     except ValueError: return await interaction.response.send_message("Invalid thread ID.",ephemeral=True)
-    event_id=threads.get(thread_number)
-    if not event_id: return await interaction.response.send_message("Unknown thread in this bot session.",ephemeral=True)
+    event=await event_for_thread(str(thread_number))
+    if not event: return await interaction.response.send_message("No active event for this thread.",ephemeral=True)
+    event_id=event["id"]
     await interaction.response.defer(ephemeral=True)
     archive=await api("POST",f"/events/{event_id}/end")
     thread=client.get_channel(thread_number)
     if isinstance(thread,discord.Thread): await thread.edit(archived=True,locked=True)
-    threads.pop(thread_number,None)
     await interaction.followup.send(f"Event closed. Private archive available via authenticated API: /events/{event_id}/archive. It contains unpublished submissions; do not share publicly.",ephemeral=True)
 class Review(discord.ui.View):
     def __init__(self,update_id,version):
@@ -77,9 +80,18 @@ class Review(discord.ui.View):
 @client.event
 async def on_message(message):
     if message.author.bot or not isinstance(message.channel,discord.Thread): return
-    event_id=threads.get(message.channel.id)
-    if not event_id: return
-    media=[{"discord_attachment_id":str(a.id),"filename":a.filename,"url":a.url,"size":a.size} for a in message.attachments]
+    event=await event_for_thread(str(message.channel.id))
+    if not event: return
+    event_id=event["id"]
+    from media_ingest import ingest
+    media=[]
+    for attachment in message.attachments:
+        try:
+            media.append(await ingest(attachment,event_id))
+        except (httpx.HTTPError,OSError,ValueError) as exc:
+            await message.reply("Attachment ingestion failed; this submission was not queued. Contact an editor.")
+            print("Private attachment ingest error:",repr(exc))
+            return
     if not message.content.strip() and not media: return
     try:
         update=await api("POST","/updates",{"event_id":event_id,"reporter_id":str(message.author.id),"body":message.content.strip() or "[Media submission]","media":media})
