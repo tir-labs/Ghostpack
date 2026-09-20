@@ -24,6 +24,8 @@ services:
       LIVE_API_URL: http://live:8090
     depends_on:
       - live
+    volumes:
+      - ./discord-attachments:/data/attachments
     restart: unless-stopped
     profiles: ["discord"]
 volumes:
