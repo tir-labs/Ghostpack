@@ -7,5 +7,25 @@ services:
     volumes:
       - media-data:/data
     restart: unless-stopped
+  live:
+    build: ./services/live
+    env_file: .env
+    environment:
+      LIVE_DB: /data/live.sqlite3
+    ports:
+      - "127.0.0.1:8090:8090"
+    volumes:
+      - live-data:/data
+    restart: unless-stopped
+  bot:
+    build: ./services/bot
+    env_file: .env
+    environment:
+      LIVE_API_URL: http://live:8090
+    depends_on:
+      - live
+    restart: unless-stopped
+    profiles: ["discord"]
 volumes:
   media-data:
+  live-data:
