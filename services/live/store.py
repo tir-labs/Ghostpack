@@ -67,3 +67,8 @@ def archive(id,c=None):
         return {"event":e,"updates":updates}
     finally:
         if own: c.close()
+
+def by_thread(thread_id):
+    with connect() as c:
+        r=c.execute("SELECT * FROM events WHERE thread_id=? AND status!='ended'",(thread_id,)).fetchone()
+        return dict(r) if r else None
